@@ -2,6 +2,8 @@
 
 Interactive visualization of the Rijksmuseum collection's 831K artwork embeddings, using MLX-accelerated dimensionality reduction on Apple Silicon.
 
+![UMAP with 100K samples](docs/umap-100K.png)
+
 Reduces 384-dimensional [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small) embeddings to 2D with [UMAP-MLX](https://github.com/hanxiao/umap-mlx) and [PaCMAP-MLX](https://github.com/hanxiao/pacmap-mlx), then renders them as interactive Plotly scatter plots with hover metadata (title, creator, type, subjects, materials).
 
 ## Project Structure
@@ -90,6 +92,16 @@ uv run jupyter lab       # Launch notebooks
 ### Authors
 
 [Arno Bosse](https://orcid.org/0000-0003-3681-1289) — [RISE](https://rise.unibas.ch/), University of Basel with [Claude Code](https://claude.com/product/claude-code), Anthropic.
+
+### Image and Data Credits
+
+Collection data and images are provided by the **[Rijksmuseum, Amsterdam](https://www.rijksmuseum.nl/)** via their [Linked Open Data APIs](https://data.rijksmuseum.nl/).
+
+**Licensing:** Information and data that are no longer (or never were) protected by copyright carry the **Public Domain Mark** and/or **[CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)**. Where the Rijksmuseum holds copyright, it generally waives its rights under CC0 1.0; in cases where it does exercise copyright, materials are made available under **[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)**. Materials under third-party copyright without express permission are not made available as open data. Individual licence designations appear on the [collection website](https://www.rijksmuseum.nl/en/rijksstudio).
+
+**Attribution:** The Rijksmuseum considers it good practice to provide attribution and/or source citation via a credit line and data citation, regardless of the licence applied.
+
+Please see the Rijksmuseum's [information and data policy](https://data.rijksmuseum.nl/policy/information-and-data-policy) for the full terms.
 
 ### License
 
