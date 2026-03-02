@@ -1,0 +1,25 @@
+[project]
+name = "rijksmuseum-se"
+version = "0.1.0"
+description = "Rijksmuseum Semantic Explorer — MLX-accelerated embedding visualization"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "plotly",
+    "jupyter",
+    "ipywidgets",
+    "hdbscan",
+    "umap-mlx @ git+https://github.com/hanxiao/umap-mlx.git",
+    "pacmap-mlx @ git+https://github.com/hanxiao/pacmap-mlx.git",
+    "matplotlib",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["lib"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

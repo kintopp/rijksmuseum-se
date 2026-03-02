@@ -1,0 +1,119 @@
+--- a/pacmap_mlx/pacmap.py	2026-03-02 13:23:33
++++ b/pacmap_mlx/pacmap.py	2026-03-02 11:12:32
+@@ -8,30 +8,34 @@
+ 
+ 
+ def _brute_knn(X_mx, k, chunk_size=None):
+-    """Brute-force KNN using chunked pairwise distances on GPU."""
++    """Brute-force KNN using chunked pairwise distances on GPU.
++
++    Returns numpy arrays to free Metal memory per chunk (see umap-mlx pattern).
++    """
+     n = X_mx.shape[0]
+     # Auto chunk size: fit chunk_size * n floats in ~500MB
+     if chunk_size is None:
+         chunk_size = min(n, max(1000, 500_000_000 // (n * 4)))
+-    
++
+     # Precompute squared norms once
+     sq_norms = mx.sum(X_mx * X_mx, axis=1)  # (n,)
+     mx.eval(sq_norms)
+-    
+-    all_indices = []
+-    all_distances = []
++
++    # Pre-allocate numpy output — Metal memory freed after each chunk
++    knn_indices = np.zeros((n, k), dtype=np.int32)
++    knn_distances = np.zeros((n, k), dtype=np.float32)
+     prev = None
+-    
++
+     for start in range(0, n, chunk_size):
+         end = min(start + chunk_size, n)
+         sq_chunk = sq_norms[start:end, None]  # reuse, don't recompute
+-        
++
+         # dist^2 = ||a||^2 + ||b||^2 - 2*a.b
+         dists = mx.maximum(
+             sq_chunk + sq_norms[None, :] - 2.0 * (X_mx[start:end] @ X_mx.T),
+             0.0
+         )
+-        
++
+         # Set self-distance to inf (simple offset approach)
+         if end - start == n:
+             dists = dists + mx.eye(n) * 1e30
+@@ -39,29 +43,29 @@
+             arange_chunk = mx.arange(start, end)[:, None]
+             arange_all = mx.arange(n)[None, :]
+             dists = dists + (arange_chunk == arange_all).astype(mx.float32) * 1e30
+-        
++
+         # Full sort, take top k (argsort and argpartition same speed on MLX)
+         indices = mx.argsort(dists, axis=1)[:, :k]
+         gathered = mx.sqrt(mx.take_along_axis(dists, indices, axis=1))
+-        
+-        # Pipeline: collect previous while current computes
++
++        # Pipeline: eval previous while current computes, then copy to numpy
+         if prev is not None:
+             p_idx, p_dist, p_start, p_end = prev
+             mx.eval(p_idx, p_dist)
+-            all_indices.append(p_idx)
+-            all_distances.append(p_dist)
+-        
++            knn_indices[p_start:p_end] = np.array(p_idx, dtype=np.int32)
++            knn_distances[p_start:p_end] = np.array(p_dist, dtype=np.float32)
++
+         prev = (indices, gathered, start, end)
+-    
++
+     if prev is not None:
+-        p_idx, p_dist, _, _ = prev
++        p_idx, p_dist, p_start, p_end = prev
+         mx.eval(p_idx, p_dist)
+-        all_indices.append(p_idx)
+-        all_distances.append(p_dist)
+-    
+-    return mx.concatenate(all_indices, axis=0), mx.concatenate(all_distances, axis=0)
++        knn_indices[p_start:p_end] = np.array(p_idx, dtype=np.int32)
++        knn_distances[p_start:p_end] = np.array(p_dist, dtype=np.float32)
+ 
++    return knn_indices, knn_distances
+ 
++
+ def _sample_neighbors(knn_distances_np, knn_indices_np, n_neighbors):
+     """Sample neighbor pairs using scaled distance (vectorized numpy)."""
+     n, k_extra = knn_distances_np.shape
+@@ -259,9 +263,9 @@
+         rng = np.random.default_rng(self.random_state)
+         
+         # Preprocess
+-        X_mx = self._preprocess(X_np.copy())
++        X_mx = self._preprocess(X_np)
+         mx.eval(X_mx)
+-        X_proc_np = np.array(X_mx)
++        del X_np  # free ~293 MB; only X_mx needed from here
+         
+         # Determine pair counts
+         n_neighbors = min(self.n_neighbors, n - 1)
+@@ -275,9 +279,7 @@
+         # KNN
+         self._log("Computing KNN...")
+         t0 = time.time()
+-        knn_indices, knn_distances = _brute_knn(X_mx, n_neighbors + 50)
+-        knn_indices_np = np.array(knn_indices, dtype=np.int32)
+-        knn_distances_np = np.array(knn_distances, dtype=np.float32)
++        knn_indices_np, knn_distances_np = _brute_knn(X_mx, n_neighbors + 50)
+         self._log(f"KNN done in {time.time()-t0:.1f}s")
+         
+         # Sample pairs (all in numpy, pre-computed)
+@@ -295,7 +297,7 @@
+         # Initialize embedding
+         if init == "pca":
+             if self._pca_solution:
+-                Y = mx.array(X_proc_np[:, :self.n_components]) * 0.01
++                Y = X_mx[:, :self.n_components] * 0.01
+             else:
+                 Y = _pca_init(X_mx, self.n_components)
+         elif init == "random":

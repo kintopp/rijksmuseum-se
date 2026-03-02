@@ -1,0 +1,17 @@
+# Generated output
+output/
+
+# Data (symlinked from rijksmuseum-mcp-plus)
+data/*.db
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store

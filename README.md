@@ -1,0 +1,96 @@
+# Rijksmuseum Semantic Explorer
+
+Interactive visualization of the Rijksmuseum collection's 831K artwork embeddings, using MLX-accelerated dimensionality reduction on Apple Silicon.
+
+Reduces 384-dimensional [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small) embeddings to 2D with [UMAP-MLX](https://github.com/hanxiao/umap-mlx) and [PaCMAP-MLX](https://github.com/hanxiao/pacmap-mlx), then renders them as interactive Plotly scatter plots with hover metadata (title, creator, type, subjects, materials).
+
+## Project Structure
+
+```
+lib/embeddings.py                  — Shared: load, decode, normalize, sample embeddings + metadata
+notebooks/
+  01-umap-explore.ipynb            — UMAP notebook with interactive Plotly visualization
+  02-pacmap-explore.ipynb          — PaCMAP notebook with interactive Plotly visualization
+scripts/
+  generate-umap-explorer.py        — Standalone UMAP HTML explorer generator
+  generate-pacmap-explorer.py      — Standalone PaCMAP HTML explorer generator
+  generate-umap-animation.py       — UMAP epoch-by-epoch animation (MP4)
+  _html_template.py                — Shared HTML template for standalone explorers
+data/                              — Symlinked database files (see below)
+output/                            — Generated HTML files (.gitignore'd)
+```
+
+## Data Dependencies
+
+This project requires two SQLite databases that are **not included** in this repository. They are expected as symlinks in `data/`:
+
+| File | Contents | Source |
+|------|----------|--------|
+| `data/embeddings.db` | 831,667 artwork embeddings (int8-quantized, 384 dims) | [`rijksmuseum-mcp-plus`](https://github.com/your-org/rijksmuseum-mcp-plus) |
+| `data/vocabulary.db` | Structured metadata (titles, creators, types, subjects, materials, techniques) | Same |
+
+Both are symlinked from `../rijksmuseum-mcp-plus/data/`. To set up:
+
+```bash
+# Clone the data source repo as a sibling directory
+git clone <rijksmuseum-mcp-plus-url> ../rijksmuseum-mcp-plus
+
+# Create symlinks (already in place if you cloned this repo next to it)
+mkdir -p data
+ln -s ../../rijksmuseum-mcp-plus/data/embeddings.db data/embeddings.db
+ln -s ../../rijksmuseum-mcp-plus/data/vocabulary.db  data/vocabulary.db
+```
+
+> **Note:** `vocabulary.db` must use the v0.13+ integer-encoded schema (with `field_lookup`, `mappings`, and `vocabulary` tables).
+
+## Generating Explorers
+
+```bash
+uv sync && bash patches/apply-patches.sh          # Install deps + apply local fixes
+
+# Quick 20K-sample explorers (~15s each)
+uv run python scripts/generate-umap-explorer.py --sample 20000
+uv run python scripts/generate-pacmap-explorer.py --sample 20000
+
+# Full 100K-sample explorers (~2 min each)
+uv run python scripts/generate-umap-explorer.py --sample 100000 --output umap-explorer-100K.html
+uv run python scripts/generate-pacmap-explorer.py --sample 100000 --output pacmap-explorer-100K.html
+```
+
+Output HTML files are self-contained (Plotly CDN only) and written to `output/`.
+
+### Explorer Features
+
+- **Plotly scattergl** — WebGL scatter plot handling 100K+ points
+- **Cluster sidebar** — Click to toggle visibility, double-click for detail panel with aggregate stats (subjects, types, creators, materials, techniques)
+- **Filter & sort** — Filter sidebar by text, toggle between size and alphabetical sort
+- **Zoom-dependent hover** — Hover disabled at overview zoom, auto-enables past 4× to reduce clutter
+- **Lasso selection** — Press `S` to toggle lasso mode; draw a selection to see aggregate stats for arbitrary regions
+- **Keyboard shortcuts** — `0`–`4` zoom presets (1×–16×), arrow keys to pan, `L` labels, `N` noise, `?` help overlay
+- **Click to browse** — Click any point to open its Rijksmuseum collection page
+
+## Setup
+
+Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync                  # Install dependencies
+uv run jupyter lab       # Launch notebooks
+```
+
+## Dependencies
+
+- **numpy** — Embedding decode and normalization
+- **plotly** + **ipywidgets** — Interactive scatter plot visualization
+- **matplotlib** — Animation rendering (epoch-by-epoch MP4 via ffmpeg)
+- **hdbscan** — Density-based clustering of embedding space
+- **[umap-mlx](https://github.com/hanxiao/umap-mlx)** — MLX-accelerated UMAP (Apple Silicon)
+- **[pacmap-mlx](https://github.com/hanxiao/pacmap-mlx)** — MLX-accelerated PaCMAP (Apple Silicon)
+
+### Authors
+
+[Arno Bosse](https://orcid.org/0000-0003-3681-1289) — [RISE](https://rise.unibas.ch/), University of Basel with [Claude Code](https://claude.com/product/claude-code), Anthropic.
+
+### License
+
+This project is licensed under the [MIT License](LICENSE).
