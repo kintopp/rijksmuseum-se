@@ -13,6 +13,13 @@ lib/embeddings.py                  — Shared: load, decode, normalize, sample e
 notebooks/
   01-umap-explore.ipynb            — UMAP notebook with interactive Plotly visualization
   02-pacmap-explore.ipynb          — PaCMAP notebook with interactive Plotly visualization
+mathematica/
+  01-embedding-geometry.nb         — PCA eigenspectrum, distance distributions, isotropy
+  02-semantic-networks.nb          — k-NN graphs, community detection, centrality
+  03-creator-stylespace.nb         — Artist centroid similarities, dendrograms, diversity
+  04-temporal-journeys.nb          — Style drift, temporal trajectories, anachronism detection
+  05-metadata-landscapes.nb        — Co-occurrence, separability, word clouds, type networks
+  export_for_mathematica.py        — Python data bridge (exports .bin + .json for Mathematica)
 scripts/
   generate-umap-explorer.py        — Standalone UMAP HTML explorer generator
   generate-pacmap-explorer.py      — Standalone PaCMAP HTML explorer generator
@@ -70,6 +77,26 @@ Output HTML files are self-contained (Plotly CDN only) and written to `output/`.
 - **Lasso selection** — Press `S` to toggle lasso mode; draw a selection to see aggregate stats for arbitrary regions
 - **Keyboard shortcuts** — `0`–`4` zoom presets (1×–16×), arrow keys to pan, `L` labels, `N` noise, `?` help overlay
 - **Click to browse** — Click any point to open its Rijksmuseum collection page
+
+## Mathematica Notebooks
+
+Five Wolfram Mathematica notebooks provide deeper statistical and graph-theoretic analyses that complement the Plotly-based Jupyter explorations:
+
+| # | Notebook | Focus |
+|---|----------|-------|
+| 1 | `01-embedding-geometry.nb` | PCA eigenspectrum, effective dimensionality, pairwise distance distributions, k-NN density, 3D PCA scatter, isotropy |
+| 2 | `02-semantic-networks.nb` | k-NN similarity graph, community detection, degree distribution, betweenness centrality, community composition |
+| 3 | `03-creator-stylespace.nb` | Creator centroid similarities, hierarchical clustering dendrogram, intra-artist diversity, 2D style map |
+| 4 | `04-temporal-journeys.nb` | Century/period centroids, style drift over time, PCA trajectories, anachronism detection, style velocity |
+| 5 | `05-metadata-landscapes.nb` | Type×material co-occurrence, category separability, subject word clouds, type similarity network |
+
+Setup (requires [Wolfram Mathematica](https://www.wolfram.com/mathematica/) 14.0+):
+
+```bash
+uv run python mathematica/export_for_mathematica.py   # Export data (~30s, one-time)
+```
+
+Then open any `.nb` file in Mathematica. See [`mathematica/README.md`](mathematica/README.md) for details.
 
 ## Setup
 
