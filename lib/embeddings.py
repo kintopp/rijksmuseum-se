@@ -94,6 +94,39 @@ def load_embeddings(
     return art_ids, object_numbers, embeddings
 
 
+def filter_by_field(
+    field_name: str,
+    value: str,
+    vdb_path: Path = DEFAULT_VOCAB_DB,
+) -> set[int]:
+    """Return art_ids whose vocabulary field matches value (case-insensitive).
+
+    Args:
+        field_name: Name of the field in field_lookup (e.g. 'type', 'creator', 'subject').
+        value: Value to match against label_en in the vocabulary table.
+        vdb_path: Path to vocabulary.db
+    """
+    with sqlite3.connect(str(vdb_path)) as vdb:
+        row = vdb.execute(
+            "SELECT id FROM field_lookup WHERE name=?", (field_name,)
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Unknown field {field_name!r} in vocabulary DB")
+        fid = row[0]
+        return {
+            r[0]
+            for r in vdb.execute(
+                """
+                SELECT DISTINCT m.artwork_id
+                FROM mappings m
+                JOIN vocabulary v ON v.vocab_int_id = m.vocab_rowid
+                WHERE m.field_id = ? AND LOWER(v.label_en) = LOWER(?)
+                """,
+                (fid, value),
+            )
+        }
+
+
 def load_metadata(
     art_ids: list[int],
     object_numbers: list[str],

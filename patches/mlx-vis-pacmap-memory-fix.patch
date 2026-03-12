@@ -1,5 +1,5 @@
---- a/pacmap_mlx/pacmap.py	2026-03-02 13:23:33
-+++ b/pacmap_mlx/pacmap.py	2026-03-02 11:12:32
+--- a/mlx_vis/_pacmap/pacmap.py
++++ b/mlx_vis/_pacmap/pacmap.py
 @@ -8,30 +8,34 @@
  
  
@@ -85,7 +85,7 @@
  def _sample_neighbors(knn_distances_np, knn_indices_np, n_neighbors):
      """Sample neighbor pairs using scaled distance (vectorized numpy)."""
      n, k_extra = knn_distances_np.shape
-@@ -259,9 +263,9 @@
+@@ -261,9 +265,9 @@
          rng = np.random.default_rng(self.random_state)
          
          # Preprocess
@@ -93,22 +93,23 @@
 +        X_mx = self._preprocess(X_np)
          mx.eval(X_mx)
 -        X_proc_np = np.array(X_mx)
-+        del X_np  # free ~293 MB; only X_mx needed from here
++        del X_np  # free memory; only X_mx needed from here
          
          # Determine pair counts
          n_neighbors = min(self.n_neighbors, n - 1)
-@@ -275,9 +279,7 @@
+@@ -277,9 +281,7 @@
          # KNN
          self._log("Computing KNN...")
          t0 = time.time()
 -        knn_indices, knn_distances = _brute_knn(X_mx, n_neighbors + 50)
 -        knn_indices_np = np.array(knn_indices, dtype=np.int32)
 -        knn_distances_np = np.array(knn_distances, dtype=np.float32)
-+        knn_indices_np, knn_distances_np = _brute_knn(X_mx, n_neighbors + 50)
++        knn_k = min(n_neighbors + 50, n - 1)  # clamp for small datasets
++        knn_indices_np, knn_distances_np = _brute_knn(X_mx, knn_k)
          self._log(f"KNN done in {time.time()-t0:.1f}s")
          
          # Sample pairs (all in numpy, pre-computed)
-@@ -295,7 +297,7 @@
+@@ -297,7 +299,7 @@
          # Initialize embedding
          if init == "pca":
              if self._pca_solution:

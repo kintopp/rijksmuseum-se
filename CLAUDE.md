@@ -37,6 +37,6 @@ uv run jupyter lab                          # Launch notebooks
 Local fixes to vendored dependencies live in `patches/`. Run `bash patches/apply-patches.sh`
 after every `uv sync` to re-apply them. The script is idempotent (skips already-applied patches).
 
-- **pacmap-mlx-memory-fix.patch** — Fixes O(n) Metal memory accumulation in `_brute_knn` that
-  caused 20+ GB RAM / 7 GB swap at 200K points. Switches to per-chunk numpy copy (umap-mlx pattern)
+- **mlx-vis-pacmap-memory-fix.patch** — Fixes O(n) Metal memory accumulation in `_brute_knn` that
+  caused 20+ GB RAM / 7 GB swap at 200K points. Switches to per-chunk numpy copy (umap pattern)
   and removes redundant numpy↔MLX round-trips in `fit_transform`.

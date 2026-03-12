@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Generate an interactive PaCMAP-MLX cluster explorer for the Rijksmuseum collection.
+"""Generate an interactive t-SNE cluster explorer for the Rijksmuseum collection.
 
-Pipeline: load embeddings -> PaCMAP-MLX (Metal GPU) -> HDBSCAN -> interactive HTML.
+Pipeline: load embeddings -> t-SNE-MLX (Metal GPU) -> HDBSCAN -> interactive HTML.
 
 Usage:
-    uv run python scripts/generate-pacmap-explorer.py              # full 831K
-    uv run python scripts/generate-pacmap-explorer.py --sample 20000  # 20K sample (~2 min on M4)
-    uv run python scripts/generate-pacmap-explorer.py --type painting  # paintings only
-    uv run python scripts/generate-pacmap-explorer.py --type painting --creator "Rijn, Rembrandt van"
-    uv run python scripts/generate-pacmap-explorer.py --subject dog    # all artworks depicting dogs
+    uv run python scripts/generate-tsne-explorer.py              # full 831K
+    uv run python scripts/generate-tsne-explorer.py --sample 20000  # 20K sample (~2 min on M4)
+    uv run python scripts/generate-tsne-explorer.py --type painting  # paintings only
+    uv run python scripts/generate-tsne-explorer.py --type painting --creator "Rijn, Rembrandt van"
+    uv run python scripts/generate-tsne-explorer.py --subject dog    # all artworks depicting dogs
 """
 
 import argparse
@@ -35,14 +35,12 @@ OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate PaCMAP-MLX cluster explorer")
+    parser = argparse.ArgumentParser(description="Generate t-SNE-MLX cluster explorer")
     parser.add_argument("--sample", type=int, default=None, help="Sample size (default: all 831K)")
     parser.add_argument("--type", type=str, default=None, help="Filter by object type (e.g. 'painting')")
     parser.add_argument("--creator", type=str, default=None, help="Filter by creator (e.g. 'Rijn, Rembrandt van')")
     parser.add_argument("--subject", type=str, default=None, help="Filter by subject (e.g. 'dog')")
-    parser.add_argument("--n-neighbors", type=int, default=10, help="PaCMAP n_neighbors (default: 10)")
-    parser.add_argument("--mn-ratio", type=float, default=0.5, help="PaCMAP MN_ratio (default: 0.5)")
-    parser.add_argument("--fp-ratio", type=float, default=2.0, help="PaCMAP FP_ratio (default: 2.0)")
+    parser.add_argument("--perplexity", type=float, default=30, help="t-SNE perplexity (default: 30)")
     parser.add_argument("--min-cluster-size", type=int, default=None, help="HDBSCAN min_cluster_size (auto-scaled if omitted)")
     parser.add_argument("--min-samples", type=int, default=None, help="HDBSCAN min_samples (auto-scaled if omitted)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -84,22 +82,20 @@ def main():
 
     min_cluster_size, min_samples = autoscale_hdbscan(n, args.min_cluster_size, args.min_samples)
 
-    # 2. PaCMAP-MLX dimensionality reduction
-    print(f"Running PaCMAP-MLX (n_neighbors={args.n_neighbors}, MN_ratio={args.mn_ratio}, FP_ratio={args.fp_ratio})...")
-    from mlx_vis import PaCMAP
+    # 2. t-SNE-MLX dimensionality reduction
+    print(f"Running t-SNE-MLX (perplexity={args.perplexity})...")
+    from mlx_vis import TSNE
 
     t0 = time.time()
-    reducer = PaCMAP(
+    reducer = TSNE(
         n_components=2,
-        n_neighbors=args.n_neighbors,
-        MN_ratio=args.mn_ratio,
-        FP_ratio=args.fp_ratio,
+        perplexity=args.perplexity,
         random_state=args.seed,
         verbose=True,
     )
     coords = reducer.fit_transform(embeddings)
     coords = np.asarray(coords, dtype=np.float32)
-    print(f"  PaCMAP done in {time.time() - t0:.1f}s")
+    print(f"  t-SNE done in {time.time() - t0:.1f}s")
 
     # Free high-dim embeddings and reducer — only 2D coords needed from here
     del embeddings, reducer
@@ -140,24 +136,24 @@ def main():
     suffix = filter_suffix(filters)
     subtitle = (
         f"{n:,} artworks{suffix} \u00b7 {result['n_clusters']} clusters \u00b7 "
-        f"PaCMAP-MLX n_neighbors={args.n_neighbors} MN={args.mn_ratio} FP={args.fp_ratio}"
+        f"t-SNE-MLX perplexity={args.perplexity}"
     )
-    title = f"PaCMAP-MLX Embedding Clusters{suffix}"
+    title = f"t-SNE-MLX Embedding Clusters{suffix}"
     html = generate_explorer_html(
         title=title,
         subtitle=subtitle,
-        axis_label="PaCMAP",
+        axis_label="t-SNE",
         **result,
     )
 
     # 6. Write output
     OUTPUT_DIR.mkdir(exist_ok=True)
-    html_path = OUTPUT_DIR / (args.output or default_output("pacmap", filters))
+    html_path = OUTPUT_DIR / (args.output or default_output("tsne", filters))
     html_path.write_text(html)
     print(f"\nSaved: {html_path} ({html_path.stat().st_size / 1024:.0f} KB)")
 
     # Save coordinates for reuse
-    npz_path = OUTPUT_DIR / "pacmap-coords.npz"
+    npz_path = OUTPUT_DIR / "tsne-coords.npz"
     np.savez_compressed(
         npz_path,
         coords=coords,

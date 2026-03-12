@@ -4,7 +4,7 @@ Interactive visualization of the Rijksmuseum collection's 831K artwork embedding
 
 ![UMAP with 100K samples](docs/umap-100K.png)
 
-Reduces 384-dimensional [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small) embeddings to 2D with [UMAP-MLX](https://github.com/hanxiao/umap-mlx) and [PaCMAP-MLX](https://github.com/hanxiao/pacmap-mlx), then renders them as interactive Plotly scatter plots with hover metadata (title, creator, type, subjects, materials).
+Reduces 384-dimensional [multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small) embeddings to 2D with [UMAP-MLX](https://github.com/hanxiao/umap-mlx), [t-SNE-MLX](https://github.com/hanxiao/tsne-mlx), and [PaCMAP-MLX](https://github.com/hanxiao/pacmap-mlx), then renders them as interactive Plotly scatter plots with hover metadata (title, creator, type, subjects, materials).
 
 ## Project Structure
 
@@ -21,10 +21,11 @@ mathematica/
   05-metadata-landscapes.nb        — Co-occurrence, separability, word clouds, type networks
   export_for_mathematica.py        — Python data bridge (exports .bin + .json for Mathematica)
 scripts/
-  generate-umap-explorer.py        — Standalone UMAP HTML explorer generator
-  generate-pacmap-explorer.py      — Standalone PaCMAP HTML explorer generator
+  generate-umap-explorer.py        — UMAP HTML explorer generator
+  generate-tsne-explorer.py        — t-SNE HTML explorer generator
+  generate-pacmap-explorer.py      — PaCMAP HTML explorer generator
   generate-umap-animation.py       — UMAP epoch-by-epoch animation (MP4)
-  _html_template.py                — Shared HTML template for standalone explorers
+  _html_template.py                — Shared HTML/Plotly template for explorers
 data/                              — Symlinked database files (see below)
 output/                            — Generated HTML files (.gitignore'd)
 ```
@@ -59,12 +60,33 @@ uv sync && bash patches/apply-patches.sh          # Install deps + apply local f
 
 # Quick 20K-sample explorers (~15s each)
 uv run python scripts/generate-umap-explorer.py --sample 20000
+uv run python scripts/generate-tsne-explorer.py --sample 20000
 uv run python scripts/generate-pacmap-explorer.py --sample 20000
 
 # Full 100K-sample explorers (~2 min each)
 uv run python scripts/generate-umap-explorer.py --sample 100000 --output umap-explorer-100K.html
 uv run python scripts/generate-pacmap-explorer.py --sample 100000 --output pacmap-explorer-100K.html
 ```
+
+### Filtering by metadata
+
+All three scripts support `--type`, `--creator`, and `--subject` filters. Filters combine with AND logic and auto-generate descriptive output filenames:
+
+```bash
+# All paintings
+uv run python scripts/generate-pacmap-explorer.py --type painting
+
+# Rembrandt's paintings
+uv run python scripts/generate-umap-explorer.py --type painting --creator "Rijn, Rembrandt van"
+
+# All artworks depicting dogs
+uv run python scripts/generate-tsne-explorer.py --subject dog
+
+# Ed van der Elsken's photographs
+uv run python scripts/generate-pacmap-explorer.py --type photograph --creator "Ed van der Elsken"
+```
+
+HDBSCAN clustering parameters auto-scale to dataset size (capped at `min_cluster_size=100, min_samples=10` for large datasets, scaling down for smaller filtered subsets). Override with `--min-cluster-size` and `--min-samples`.
 
 Output HTML files are self-contained (Plotly CDN only) and written to `output/`.
 
@@ -113,8 +135,7 @@ uv run jupyter lab       # Launch notebooks
 - **plotly** + **ipywidgets** — Interactive scatter plot visualization
 - **matplotlib** — Animation rendering (epoch-by-epoch MP4 via ffmpeg)
 - **hdbscan** — Density-based clustering of embedding space
-- **[umap-mlx](https://github.com/hanxiao/umap-mlx)** — MLX-accelerated UMAP (Apple Silicon)
-- **[pacmap-mlx](https://github.com/hanxiao/pacmap-mlx)** — MLX-accelerated PaCMAP (Apple Silicon)
+- **[mlx-vis](https://github.com/hanxiao/mlx-vis)** — MLX-accelerated UMAP, t-SNE, and PaCMAP (Apple Silicon)
 
 ### Authors
 
