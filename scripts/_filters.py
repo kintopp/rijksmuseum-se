@@ -10,13 +10,16 @@ _VOCAB_FIELDS = ("type", "creator", "subject", "production_place")
 # Artwork-column filters run as direct WHERE clauses on the artworks table.
 _COLUMN_FILTERS = ("date_from", "date_to", "with_image_only", "min_importance")
 
+# Bucket key for artwork-column predicates inside a filter dict.
+_COLUMNS_KEY = "__columns__"
+
 
 def collect_filters(args) -> dict:
     """Return a filter dict with both vocab-mapped and artwork-column entries.
 
     Vocab-mapped entries are {field: value} strings (keys in _VOCAB_FIELDS).
-    Artwork-column entries are stored under the single key "__columns__" as
-    a predicate dict passed straight to filter_by_artwork_column().
+    Artwork-column entries are stored under _COLUMNS_KEY as a predicate dict
+    passed straight to filter_by_artwork_column().
     """
     filters: dict = {}
     # Vocabulary-mapped
@@ -31,7 +34,7 @@ def collect_filters(args) -> dict:
         if value:  # truthy covers store_true flags and non-None ints
             columns[key] = value
     if columns:
-        filters["__columns__"] = columns
+        filters[_COLUMNS_KEY] = columns
     return filters
 
 
@@ -42,22 +45,21 @@ def apply_filters(filters: dict) -> set[int] | None:
     allowed: set[int] | None = None
     # Vocab-mapped first
     for field, value in filters.items():
-        if field == "__columns__":
+        if field == _COLUMNS_KEY:
             continue
         print(f"Filtering by {field}={value!r}...")
         ids = filter_by_field(field, value)
         print(f"  {len(ids):,} artworks match {field}={value!r}")
         allowed = ids if allowed is None else allowed & ids
     # Then artwork-column predicates in one query
-    if "__columns__" in filters:
-        cols = filters["__columns__"]
+    if _COLUMNS_KEY in filters:
+        cols = filters[_COLUMNS_KEY]
         pretty = ", ".join(f"{k}={v!r}" for k, v in cols.items())
         print(f"Filtering by artwork columns: {pretty}")
         ids = filter_by_artwork_column(cols)
         print(f"  {len(ids):,} artworks match {pretty}")
         allowed = ids if allowed is None else allowed & ids
-    active_count = sum(1 for k in filters if k != "__columns__") + (1 if "__columns__" in filters else 0)
-    if active_count > 1:
+    if len(filters) > 1:
         print(f"  {len(allowed):,} artworks match all filters")
     return allowed
 
@@ -68,7 +70,7 @@ def filter_suffix(filters: dict) -> str:
         return ""
     parts = []
     for field, value in filters.items():
-        if field == "__columns__":
+        if field == _COLUMNS_KEY:
             cols = value
             if cols.get("date_from") or cols.get("date_to"):
                 lo = cols.get("date_from", "")
@@ -114,7 +116,7 @@ def default_output(method: str, filters: dict) -> str:
             parts.append(_slugify(value) + "s")
         else:
             parts.append(_slugify(value))
-    cols = filters.get("__columns__") or {}
+    cols = filters.get(_COLUMNS_KEY) or {}
     if cols.get("date_from") or cols.get("date_to"):
         lo = cols.get("date_from") or ""
         hi = cols.get("date_to") or ""

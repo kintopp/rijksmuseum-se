@@ -95,6 +95,18 @@ def load_embeddings(
     return art_ids, object_numbers, embeddings
 
 
+def schema_version(vdb_path: Path = DEFAULT_VOCAB_DB) -> str | None:
+    """Return vocabulary.db's build timestamp from version_info, or None if absent."""
+    try:
+        with sqlite3.connect(str(vdb_path)) as conn:
+            row = conn.execute(
+                "SELECT value FROM version_info WHERE key='built_at'"
+            ).fetchone()
+            return row[0] if row else None
+    except sqlite3.Error:
+        return None
+
+
 def filter_by_field(
     field_name: str,
     value: str,
@@ -188,20 +200,17 @@ def load_metadata(
     with sqlite3.connect(str(vdb_path)) as vdb:
         # Current upstream DB (build 2026-04-19+) carries a version_info table.
         # Older DBs without it but with field_lookup still work; we fall back.
-        has_version_info = vdb.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='version_info'"
-        ).fetchone()[0] > 0
-        has_field_lookup = vdb.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='field_lookup'"
-        ).fetchone()[0] > 0
-        if not has_field_lookup:
+        tables = {r[0] for r in vdb.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name IN ('field_lookup', 'version_info')"
+        )}
+        if "field_lookup" not in tables:
             raise RuntimeError(
                 "vocabulary.db is missing field_lookup — expected rijksmuseum-mcp-plus "
                 "v0.24+ integer-encoded schema (with field_lookup, mappings, vocabulary, "
                 "artworks, version_info tables)."
             )
-        if not has_version_info:
-            # Not fatal, but worth surfacing — downstream consumers may probe version_info.
+        if "version_info" not in tables:
             warnings.warn(
                 "vocabulary.db has no version_info table; DB may be from a pre-v0.24 build.",
                 RuntimeWarning,

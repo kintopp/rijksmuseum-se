@@ -14,30 +14,13 @@ Usage:
 
 import argparse
 import json
-import sqlite3
 import sys
 from pathlib import Path
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from lib.embeddings import (
-    DEFAULT_VOCAB_DB,
-    load_embeddings,
-    load_metadata,
-)
-
-
-def read_schema_version(vdb_path: Path = DEFAULT_VOCAB_DB) -> str | None:
-    """Return the vocabulary.db build timestamp, or None if not available."""
-    try:
-        with sqlite3.connect(str(vdb_path)) as conn:
-            row = conn.execute(
-                "SELECT value FROM version_info WHERE key='built_at'"
-            ).fetchone()
-            return row[0] if row else None
-    except sqlite3.Error:
-        return None
+from lib.embeddings import load_embeddings, load_metadata, schema_version
 
 
 def main():
@@ -92,7 +75,7 @@ def main():
         "n": n,
         "dim": dim,
         "seed": args.seed,
-        "schema_version": read_schema_version(),
+        "schema_version": schema_version(),
         "art_ids": art_ids,
         "object_numbers": object_numbers,
         "artworks": artworks,
