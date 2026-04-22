@@ -2,46 +2,86 @@
 
 import re
 
-from lib.embeddings import filter_by_field
+from lib.embeddings import filter_by_artwork_column, filter_by_field
+
+# Vocabulary-mapped filters resolve through field_lookup/mappings/vocabulary.
+_VOCAB_FIELDS = ("type", "creator", "subject", "production_place")
+
+# Artwork-column filters run as direct WHERE clauses on the artworks table.
+_COLUMN_FILTERS = ("date_from", "date_to", "with_image_only", "min_importance")
 
 
-def collect_filters(args) -> dict[str, str]:
-    """Return {field_name: value} for all active CLI filters."""
-    filters = {}
-    if args.type:
-        filters["type"] = args.type
-    if args.creator:
-        filters["creator"] = args.creator
-    if args.subject:
-        filters["subject"] = args.subject
+def collect_filters(args) -> dict:
+    """Return a filter dict with both vocab-mapped and artwork-column entries.
+
+    Vocab-mapped entries are {field: value} strings (keys in _VOCAB_FIELDS).
+    Artwork-column entries are stored under the single key "__columns__" as
+    a predicate dict passed straight to filter_by_artwork_column().
+    """
+    filters: dict = {}
+    # Vocabulary-mapped
+    for field in _VOCAB_FIELDS:
+        value = getattr(args, field, None)
+        if value:
+            filters[field] = value
+    # Artwork-column predicates — only include if set
+    columns: dict = {}
+    for key in _COLUMN_FILTERS:
+        value = getattr(args, key, None)
+        if value:  # truthy covers store_true flags and non-None ints
+            columns[key] = value
+    if columns:
+        filters["__columns__"] = columns
     return filters
 
 
-def apply_filters(filters: dict[str, str]) -> set[int] | None:
+def apply_filters(filters: dict) -> set[int] | None:
     """Intersect filter results. Returns None if no filters are active."""
     if not filters:
         return None
-    allowed = None
+    allowed: set[int] | None = None
+    # Vocab-mapped first
     for field, value in filters.items():
+        if field == "__columns__":
+            continue
         print(f"Filtering by {field}={value!r}...")
         ids = filter_by_field(field, value)
         print(f"  {len(ids):,} artworks match {field}={value!r}")
         allowed = ids if allowed is None else allowed & ids
-    if len(filters) > 1:
+    # Then artwork-column predicates in one query
+    if "__columns__" in filters:
+        cols = filters["__columns__"]
+        pretty = ", ".join(f"{k}={v!r}" for k, v in cols.items())
+        print(f"Filtering by artwork columns: {pretty}")
+        ids = filter_by_artwork_column(cols)
+        print(f"  {len(ids):,} artworks match {pretty}")
+        allowed = ids if allowed is None else allowed & ids
+    active_count = sum(1 for k in filters if k != "__columns__") + (1 if "__columns__" in filters else 0)
+    if active_count > 1:
         print(f"  {len(allowed):,} artworks match all filters")
     return allowed
 
 
-def filter_suffix(filters: dict[str, str]) -> str:
-    """Build a human-readable suffix like ' (paintings, subject: dog)'."""
+def filter_suffix(filters: dict) -> str:
+    """Build a human-readable suffix like ' (paintings, subject: dog, 1600–1700)'."""
     if not filters:
         return ""
     parts = []
     for field, value in filters.items():
-        if field == "type":
+        if field == "__columns__":
+            cols = value
+            if cols.get("date_from") or cols.get("date_to"):
+                lo = cols.get("date_from", "")
+                hi = cols.get("date_to", "")
+                parts.append(f"{lo}–{hi}")
+            if cols.get("with_image_only"):
+                parts.append("with image")
+            if cols.get("min_importance"):
+                parts.append(f"importance≥{cols['min_importance']}")
+        elif field == "type":
             parts.append(f"{value}s")
         else:
-            parts.append(f"{field}: {value}")
+            parts.append(f"{field.replace('_', ' ')}: {value}")
     return f" ({', '.join(parts)})"
 
 
@@ -50,20 +90,23 @@ def _slugify(text: str) -> str:
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text.lower())).strip("-")
 
 
-def default_output(method: str, filters: dict[str, str]) -> str:
+def default_output(method: str, filters: dict) -> str:
     """Build a descriptive default filename from the method name and active filters.
 
     Examples:
-        umap, {}                                -> umap-explorer.html
-        umap, {type: painting}                  -> umap-paintings.html
-        pacmap, {type: painting, creator: ...}  -> pacmap-rijn-rembrandt-van-paintings.html
-        tsne, {subject: dog}                    -> tsne-dog.html
+        umap, {}                                         -> umap-explorer.html
+        umap, {type: painting}                           -> umap-paintings.html
+        pacmap, {type: painting, creator: 'Rembrandt'}   -> pacmap-rembrandt-paintings.html
+        tsne, {subject: dog}                             -> tsne-dog.html
+        umap, {production_place: Amsterdam}              -> umap-amsterdam.html
+        umap, {__columns__: {date_from: 1600, date_to: 1700}} -> umap-1600-1700.html
+        umap, {__columns__: {with_image_only: True}}     -> umap-with-image.html
     """
     if not filters:
         return f"{method}-explorer.html"
     parts = []
     # creator and subject before type so "rembrandt-paintings" reads naturally
-    for field in ("creator", "subject", "type"):
+    for field in ("creator", "subject", "production_place", "type"):
         if field not in filters:
             continue
         value = filters[field]
@@ -71,6 +114,15 @@ def default_output(method: str, filters: dict[str, str]) -> str:
             parts.append(_slugify(value) + "s")
         else:
             parts.append(_slugify(value))
+    cols = filters.get("__columns__") or {}
+    if cols.get("date_from") or cols.get("date_to"):
+        lo = cols.get("date_from") or ""
+        hi = cols.get("date_to") or ""
+        parts.append(f"{lo}-{hi}".strip("-"))
+    if cols.get("with_image_only"):
+        parts.append("with-image")
+    if cols.get("min_importance"):
+        parts.append(f"importance-{cols['min_importance']}")
     return f"{method}-{'-'.join(parts)}.html"
 
 

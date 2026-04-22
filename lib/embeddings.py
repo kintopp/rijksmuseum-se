@@ -7,6 +7,7 @@ Metadata lives in a separate vocabulary DB with integer-encoded schema.
 import html
 import random
 import sqlite3
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -102,7 +103,10 @@ def filter_by_field(
     """Return art_ids whose vocabulary field matches value (case-insensitive).
 
     Args:
-        field_name: Name of the field in field_lookup (e.g. 'type', 'creator', 'subject').
+        field_name: Name of a field in field_lookup. The upstream DB defines 14:
+            type, creator, subject, material, technique, production_place, spatial,
+            profession, collection_set, attribution_qualifier, birth_place,
+            death_place, production_role, source_type.
         value: Value to match against label_en in the vocabulary table.
         vdb_path: Path to vocabulary.db
     """
@@ -127,12 +131,46 @@ def filter_by_field(
         }
 
 
+def filter_by_artwork_column(
+    predicates: dict,
+    vdb_path: Path = DEFAULT_VOCAB_DB,
+) -> set[int]:
+    """Return art_ids matching a set of predicates on the artworks table.
+
+    Supported predicate keys (all optional, combined with AND):
+        date_from:        int — keep rows where date_latest   >= date_from
+        date_to:          int — keep rows where date_earliest <= date_to
+        with_image_only:  bool — keep rows where has_image = 1
+        min_importance:   int — keep rows where importance >= min_importance
+
+    Empty predicates return all art_ids (no filter applied).
+    """
+    clauses: list[str] = []
+    params: list = []
+    if predicates.get("date_from") is not None:
+        clauses.append("date_latest >= ?")
+        params.append(int(predicates["date_from"]))
+    if predicates.get("date_to") is not None:
+        clauses.append("date_earliest <= ?")
+        params.append(int(predicates["date_to"]))
+    if predicates.get("with_image_only"):
+        clauses.append("has_image = 1")
+    if predicates.get("min_importance") is not None:
+        clauses.append("importance >= ?")
+        params.append(int(predicates["min_importance"]))
+
+    clauses.insert(0, "art_id IS NOT NULL")
+    sql = "SELECT art_id FROM artworks WHERE " + " AND ".join(clauses)
+    with sqlite3.connect(str(vdb_path)) as vdb:
+        return {r[0] for r in vdb.execute(sql, params)}
+
+
 def load_metadata(
     art_ids: list[int],
     object_numbers: list[str],
     vdb_path: Path = DEFAULT_VOCAB_DB,
 ) -> dict[int, dict]:
-    """Fetch titles, creators, types, subjects, materials, techniques from vocabulary DB.
+    """Fetch denormalized + vocabulary-mapped metadata for a list of artworks.
 
     Args:
         art_ids: List of artwork integer IDs.
@@ -140,17 +178,34 @@ def load_metadata(
         vdb_path: Path to vocabulary.db
 
     Returns:
-        Dict keyed by art_id with keys: object_number, title, types, creators,
-        subjects, materials, techniques (all lists of strings).
+        Dict keyed by art_id with keys:
+          object_number, title, creator_label (denormalized string),
+          date_display (formatted range like "1587 – 1595"),
+          date_earliest, date_latest (ints, or None),
+          has_image (bool), iiif_id (str), importance (int),
+          types, creators, subjects, materials, techniques (lists of strings).
     """
     with sqlite3.connect(str(vdb_path)) as vdb:
-        # Require integer-encoded schema (v0.13+)
-        has_int = vdb.execute(
+        # Current upstream DB (build 2026-04-19+) carries a version_info table.
+        # Older DBs without it but with field_lookup still work; we fall back.
+        has_version_info = vdb.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='version_info'"
+        ).fetchone()[0] > 0
+        has_field_lookup = vdb.execute(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='field_lookup'"
         ).fetchone()[0] > 0
-        if not has_int:
+        if not has_field_lookup:
             raise RuntimeError(
-                "vocabulary.db uses old text schema; requires v0.13+ integer-encoded DB"
+                "vocabulary.db is missing field_lookup — expected rijksmuseum-mcp-plus "
+                "v0.24+ integer-encoded schema (with field_lookup, mappings, vocabulary, "
+                "artworks, version_info tables)."
+            )
+        if not has_version_info:
+            # Not fatal, but worth surfacing — downstream consumers may probe version_info.
+            warnings.warn(
+                "vocabulary.db has no version_info table; DB may be from a pre-v0.24 build.",
+                RuntimeWarning,
+                stacklevel=2,
             )
 
         field_map = dict(vdb.execute("SELECT name, id FROM field_lookup").fetchall())
@@ -169,6 +224,13 @@ def load_metadata(
             meta[aid] = {
                 "object_number": obj,
                 "title": "",
+                "creator_label": "",
+                "date_display": "",
+                "date_earliest": None,
+                "date_latest": None,
+                "has_image": False,
+                "iiif_id": "",
+                "importance": 0,
                 "types": [],
                 "creators": [],
                 "subjects": [],
@@ -176,15 +238,29 @@ def load_metadata(
                 "techniques": [],
             }
 
-        # Fetch titles
+        # Fetch per-artwork columns (title + denormalized display fields)
         for i in range(0, len(art_ids), _BATCH_SIZE):
             batch = art_ids[i : i + _BATCH_SIZE]
             ph = ",".join("?" * len(batch))
-            for aid, title in vdb.execute(
-                f"SELECT art_id, title FROM artworks WHERE art_id IN ({ph})", batch
+            for aid, title, creator_label, date_display, de, dl, has_image, iiif_id, importance in vdb.execute(
+                f"""
+                SELECT art_id, title, creator_label, date_display,
+                       date_earliest, date_latest, has_image, iiif_id, importance
+                FROM artworks WHERE art_id IN ({ph})
+                """,
+                batch,
             ):
-                if aid in meta:
-                    meta[aid]["title"] = title or ""
+                if aid not in meta:
+                    continue
+                m = meta[aid]
+                m["title"] = title or ""
+                m["creator_label"] = creator_label or ""
+                m["date_display"] = date_display or ""
+                m["date_earliest"] = de
+                m["date_latest"] = dl
+                m["has_image"] = bool(has_image)
+                m["iiif_id"] = iiif_id or ""
+                m["importance"] = int(importance or 0)
 
         # Fetch vocabulary metadata
         if field_ids:
@@ -234,8 +310,12 @@ def build_hover_text(meta: dict[int, dict], art_ids: list[int]) -> list[str]:
         lines = [f"<b>{title or obj}</b>"]
         if title:
             lines.append(f"Object: {obj}")
-        if m["creators"]:
-            lines.append(f"Creator: {esc(', '.join(m['creators'][:2]))}")
+        # Prefer denormalized creator_label (often richer, e.g. "X (signed by artist)")
+        creator_text = m.get("creator_label") or (", ".join(m["creators"][:2]) if m["creators"] else "")
+        if creator_text:
+            lines.append(f"Creator: {esc(creator_text)}")
+        if m.get("date_display"):
+            lines.append(f"Date: {esc(m['date_display'])}")
         if m["types"]:
             lines.append(f"Type: {esc(', '.join(m['types'][:2]))}")
         if m["subjects"]:
@@ -244,5 +324,7 @@ def build_hover_text(meta: dict[int, dict], art_ids: list[int]) -> list[str]:
             lines.append(f"Material: {esc(', '.join(m['materials'][:2]))}")
         if m["techniques"]:
             lines.append(f"Technique: {esc(', '.join(m['techniques'][:2]))}")
+        if m.get("has_image") is False:
+            lines.append('<span style="color:#999">(no image)</span>')
         texts.append("<br>".join(lines))
     return texts

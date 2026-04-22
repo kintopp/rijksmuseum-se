@@ -3,8 +3,10 @@
 
 Creates binary + JSON files that Mathematica can efficiently import:
   - embeddings.bin  — N×384 raw float32 matrix
-  - metadata.json   — art IDs, object numbers, titles, types, creators,
-                       subjects, materials, techniques, dates
+  - metadata.json   — art IDs, object numbers, titles, creator_label,
+                       date_display, date_earliest, date_latest, has_image,
+                       iiif_id, importance, types, creators, subjects,
+                       materials, techniques, plus a schema_version hint.
 
 Usage:
     uv run python mathematica/export_for_mathematica.py [--sample-size N] [--seed S]
@@ -21,25 +23,21 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from lib.embeddings import (
     DEFAULT_VOCAB_DB,
-    _BATCH_SIZE,
     load_embeddings,
     load_metadata,
 )
 
 
-def load_dates(art_ids: list[int], vdb_path: Path = DEFAULT_VOCAB_DB) -> dict:
-    """Fetch date_earliest / date_latest from vocabulary DB."""
-    dates = {}
-    with sqlite3.connect(str(vdb_path)) as conn:
-        for i in range(0, len(art_ids), _BATCH_SIZE):
-            batch = art_ids[i : i + _BATCH_SIZE]
-            ph = ",".join("?" * len(batch))
-            for aid, de, dl in conn.execute(
-                f"SELECT art_id, date_earliest, date_latest FROM artworks WHERE art_id IN ({ph})",
-                batch,
-            ):
-                dates[aid] = (de, dl)
-    return dates
+def read_schema_version(vdb_path: Path = DEFAULT_VOCAB_DB) -> str | None:
+    """Return the vocabulary.db build timestamp, or None if not available."""
+    try:
+        with sqlite3.connect(str(vdb_path)) as conn:
+            row = conn.execute(
+                "SELECT value FROM version_info WHERE key='built_at'"
+            ).fetchone()
+            return row[0] if row else None
+    except sqlite3.Error:
+        return None
 
 
 def main():
@@ -64,32 +62,37 @@ def main():
     embeddings.astype(np.float32).tofile(emb_path)
     print(f"Wrote embeddings to {emb_path} ({emb_path.stat().st_size / 1e6:.1f} MB)")
 
-    # Load metadata
+    # Load metadata (now includes date + denormalized display fields natively)
     print("Loading metadata...")
     meta = load_metadata(art_ids, object_numbers)
-    dates = load_dates(art_ids)
 
-    # Build JSON structure
+    # Build JSON structure. All existing keys are preserved for the 5 Mathematica
+    # notebooks; new keys are additive so older .nb files still work unchanged.
     artworks = {}
     for aid, onum in zip(art_ids, object_numbers):
         m = meta.get(aid, {})
-        de, dl = dates.get(aid, (None, None))
         artworks[str(aid)] = {
             "object_number": onum,
             "title": m.get("title", ""),
+            "creator_label": m.get("creator_label", ""),
+            "date_display": m.get("date_display", ""),
+            "date_earliest": m.get("date_earliest"),
+            "date_latest": m.get("date_latest"),
+            "has_image": m.get("has_image", False),
+            "iiif_id": m.get("iiif_id", ""),
+            "importance": m.get("importance", 0),
             "types": m.get("types", []),
             "creators": m.get("creators", []),
             "subjects": m.get("subjects", []),
             "materials": m.get("materials", []),
             "techniques": m.get("techniques", []),
-            "date_earliest": de,
-            "date_latest": dl,
         }
 
     manifest = {
         "n": n,
         "dim": dim,
         "seed": args.seed,
+        "schema_version": read_schema_version(),
         "art_ids": art_ids,
         "object_numbers": object_numbers,
         "artworks": artworks,
@@ -99,6 +102,7 @@ def main():
     with open(meta_path, "w") as f:
         json.dump(manifest, f)
     print(f"Wrote metadata to {meta_path} ({meta_path.stat().st_size / 1e6:.1f} MB)")
+    print(f"schema_version: {manifest['schema_version']}")
     print("Done! Data ready for Mathematica import.")
 
 
